@@ -1,1 +1,13 @@
+/raw_data
+/updated_data
+movies_metadata.py
+rate+link.py
+/keywords
+*.xlsx
 agent_demo.py
+__pycache__/
+*.pyc
+*.xlsx
+*.log
+agent_demo.py
+data_tools.py
