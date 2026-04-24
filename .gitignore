@@ -11,3 +11,4 @@ __pycache__/
 *.log
 agent_demo.py
 data_tools.py
+/data

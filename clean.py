@@ -9,11 +9,11 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(os.getcwd())
-INPUT_DIR = PROJECT_ROOT / "data" / "raw"
-OUTPUT_DIR = PROJECT_ROOT / "data" / "processed"
-LOG_FILE = PROJECT_ROOT / "data_cleaning_log.txt"
+#address
+INPUT_DIR = PROJECT_ROOT / "data" / "raw"#data/raw
+OUTPUT_DIR = PROJECT_ROOT / "data" / "processed"#data/processed
+LOG_FILE = PROJECT_ROOT / "data_cleaning_log.txt"#cleaning log
 
-# 确保输出目录存在
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -37,12 +37,12 @@ class DataCleanLogger:
             f.write("=" * 80 + "\n")
             for log in self.logs:
                 f.write(log + "\n")
-        print(f"\n✅ All logs saved to: {self.log_file}")
+        print(f"\n All logs saved to: {self.log_file}")
 
 
 
 def safe_json_parse(json_str):
-    """统一且健壮的 JSON 字符串解析器"""
+    """Json String extracter"""
     if pd.isna(json_str) or json_str in ('', '[]', '{}'):
         return []
     try:
@@ -60,7 +60,7 @@ def safe_json_parse(json_str):
             return []
 
 def extract_collection_info(collection):
-    """提取电影系列 ID 和名称"""
+    """extract movie series ID and name"""
     if not collection:
         return None, None
     if isinstance(collection, list) and len(collection) > 0:
@@ -70,7 +70,7 @@ def extract_collection_info(collection):
     return None, None
 
 def clean_currency(col):
-    """清洗货币字段"""
+    """clean the currency"""
     return (col.astype(str)
             .str.replace(r'[\$,]', '', regex=True)
             .str.replace(r'^$', '0', regex=True)
@@ -89,20 +89,20 @@ def clean_metadata(logger):
     df = pd.read_csv(input_file, low_memory=False, on_bad_lines='skip')
     logger.log("Read movies_metadata", f"Rows: {len(df)}")
 
-    # 格式化 movie_id
+    # format movie_id
     df['movie_id'] = pd.to_numeric(df['id'], errors='coerce')
     df = df.dropna(subset=['movie_id'])
     df['movie_id'] = df['movie_id'].astype(int)
 
-    # 格式化日期
+    # format date
     df['release_date'] = pd.to_datetime(df['release_date'], errors='coerce')
     df['release_year'] = df['release_date'].dt.year
 
-    # 格式化货币
+    # format currency
     df['budget'] = clean_currency(df['budget'])
     df['revenue'] = clean_currency(df['revenue'])
 
-    # 解析 JSON
+    # turn to JSON
     df['genres_parsed'] = df['genres'].apply(safe_json_parse)
     df['countries_parsed'] = df['production_countries'].apply(safe_json_parse)
     df['companies_parsed'] = df['production_companies'].apply(safe_json_parse)
@@ -112,16 +112,16 @@ def clean_metadata(logger):
     df['collection_id'] = collection_info.apply(lambda x: x[0])
     df['collection_name'] = collection_info.apply(lambda x: x[1])
 
-    # 清洗数值列
+    # clean numerical column
     df['runtime'] = pd.to_numeric(df['runtime'], errors='coerce')
     df.loc[df['runtime'] <= 0, 'runtime'] = np.nan
     for col in ['popularity', 'vote_average', 'vote_count']:
         df[col] = pd.to_numeric(df[col], errors='coerce')
 
-    # 去重
+    # drop duplicate
     df = df.drop_duplicates(subset=['movie_id'], keep='first')
 
-    # 构建 Main Table
+    # contruct Main Table
     movies_main = df[['movie_id', 'title', 'release_year', 'runtime',
                       'budget', 'revenue', 'popularity', 'vote_average',
                       'vote_count', 'collection_id', 'collection_name']].copy()
@@ -129,25 +129,25 @@ def clean_metadata(logger):
     movies_main['country_count'] = df['countries_parsed'].apply(lambda x: len(x) if isinstance(x, list) else 0)
     movies_main['company_count'] = df['companies_parsed'].apply(lambda x: len(x) if isinstance(x, list) else 0)
 
-    # 构建子表: Genres
+    # contruct subtable: Genres
     genre_records = [{'movie_id': row['movie_id'], 'genre_name': g.get('name'), 'genre_id': g.get('id'), 'genre_rank': rank}
                      for _, row in df.iterrows() if isinstance(row['genres_parsed'], list)
                      for rank, g in enumerate(row['genres_parsed'], 1) if isinstance(g, dict) and g.get('name')]
     movie_genres = pd.DataFrame(genre_records) if genre_records else pd.DataFrame(columns=['movie_id', 'genre_name', 'genre_id', 'genre_rank'])
 
-    # 构建子表: Countries
+    # contruct subtable: Countries
     country_records = [{'movie_id': row['movie_id'], 'country_iso': c.get('iso_3166_1'), 'country_name': c.get('name'), 'country_rank': rank}
                        for _, row in df.iterrows() if isinstance(row['countries_parsed'], list)
                        for rank, c in enumerate(row['countries_parsed'], 1) if isinstance(c, dict) and c.get('name')]
     movie_countries = pd.DataFrame(country_records) if country_records else pd.DataFrame(columns=['movie_id', 'country_iso', 'country_name', 'country_rank'])
 
-    # 构建子表: Companies
+    # contruct subtable: Companies
     company_records = [{'movie_id': row['movie_id'], 'company_id': comp.get('id'), 'company_name': comp.get('name'), 'company_rank': rank}
                        for _, row in df.iterrows() if isinstance(row['companies_parsed'], list)
                        for rank, comp in enumerate(row['companies_parsed'], 1) if isinstance(comp, dict) and comp.get('name')]
     movie_companies = pd.DataFrame(company_records) if company_records else pd.DataFrame(columns=['movie_id', 'company_id', 'company_name', 'company_rank'])
 
-    # 导出 Parquet
+    # Parquet
     movies_main.to_parquet(OUTPUT_DIR / "movies_main.parquet", index=False)
     movie_genres.to_parquet(OUTPUT_DIR / "movie_genres.parquet", index=False)
     movie_countries.to_parquet(OUTPUT_DIR / "movie_countries.parquet", index=False)
@@ -167,15 +167,15 @@ def clean_ratings_and_links(logger):
     ratings = pd.read_csv(ratings_file)
     links = pd.read_csv(links_file)
 
-    # 过滤与去重
+    # drop duplicates
     ratings = ratings[(ratings['rating'] >= 0.5) & (ratings['rating'] <= 5.0)]
     ratings = ratings.sort_values('timestamp').drop_duplicates(subset=['userId', 'movieId'], keep='last')
 
-    # 合并 tmdbId
+    # merge tmdbId
     ratings_with_tmdb = ratings.merge(links[['movieId', 'tmdbId']], on='movieId', how='inner').dropna(subset=['tmdbId'])
     ratings_with_tmdb['tmdbId'] = ratings_with_tmdb['tmdbId'].astype(int)
 
-    # 聚合
+    # aggregation
     ratings_agg = ratings_with_tmdb.groupby('tmdbId')['rating'].agg(['mean', 'count']).reset_index()
     ratings_agg.columns = ['movie_id', 'avg_user_rating', 'user_rating_count']
     ratings_agg['avg_user_rating'] = ratings_agg['avg_user_rating'].round(2)
@@ -218,14 +218,14 @@ def clean_credits(logger):
 
     df_credits = pd.read_csv(input_file, low_memory=False)
 
-    # 处理 Cast (Top 5)
+    # process cast for top 5 data
     cast_rows = []
     crew_rows = []
 
     for _, row in df_credits.iterrows():
         movie_id = row['id']
         
-        # 解析 Cast
+        # analyze Cast
         cast_list = safe_json_parse(row['cast'])
         for member in cast_list[:5]:
             if isinstance(member, dict) and all(k in member for k in ['id', 'name', 'character', 'order']):
@@ -235,7 +235,7 @@ def clean_credits(logger):
                     'cast_order': member['order']
                 })
         
-        # 解析 Crew
+        # analyze Crew
         crew_list = safe_json_parse(row['crew'])
         for member in crew_list:
             if isinstance(member, dict) and all(k in member for k in ['id', 'name', 'job', 'department']):
@@ -256,7 +256,6 @@ def clean_credits(logger):
 
 
 
-# 5. 主程序入口
 if __name__ == "__main__":
     print(f"Starting Master Data Cleaning Pipeline...")
     print(f"Input Directory: {INPUT_DIR}")

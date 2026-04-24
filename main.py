@@ -1,12 +1,36 @@
 import pandas as pd
-from data_clean_report import*
+import unittest
 
-orig_folder_path =  "C:/Users/imada/Desktop/dpw/raw_data"
-clean_folder_path = "C:/Users/imada/Desktop/dpw/updated_data"
+from clean import (
+    INPUT_DIR, OUTPUT_DIR, LOG_FILE, DataCleanLogger, 
+    clean_metadata, clean_ratings_and_links, clean_keywords, clean_credits
+)
+from data_clean_report import compare_folders_quality
 
-final_report = compare_folders_quality(orig_folder_path, clean_folder_path)
+from test_clean import TestDataCleaning 
+
+if __name__ == "__main__":
+    global_logger = DataCleanLogger(LOG_FILE)
+    try:
+        clean_metadata(global_logger)
+        clean_ratings_and_links(global_logger)
+        clean_keywords(global_logger)
+        clean_credits(global_logger)
+    except Exception as e:
+        global_logger.log("CRITICAL ERROR", str(e))
+    finally:
+        global_logger.save()
+
+    print("\n" + "=" * 60)
+    print("🧪 [Step 2] Running Unit Tests...")
+    print("=" * 60)
     
-if final_report is not None:
-    print(final_report)
-    final_report.to_excel('全局数据质量对比报告.xlsx', index=False)
-    print("\n报告已成功导出为: 全局数据质量对比报告.xlsx")
+    unittest.main(argv=['first-arg-is-ignored'], exit=False, verbosity=2)
+
+    
+    final_report = compare_folders_quality(str(INPUT_DIR), str(OUTPUT_DIR))
+    
+    if final_report is not None:
+        print(final_report.to_string()) 
+        final_report.to_excel('data_report.xlsx', index=False)
+        print("\nReport output successfully as: data_report.xlsx")
