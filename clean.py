@@ -129,6 +129,11 @@ def clean_metadata(logger):
     movies_main['country_count'] = df['countries_parsed'].apply(lambda x: len(x) if isinstance(x, list) else 0)
     movies_main['company_count'] = df['companies_parsed'].apply(lambda x: len(x) if isinstance(x, list) else 0)
 
+
+    # process invalid years and data
+    movies_main = movies_main[(movies_main['release_year'] >= 1850) & (movies_main['release_year'] <= 2030)]
+    movies_main = movies_main[(movies_main['budget'] >= 0) & (movies_main['revenue'] >= 0)]
+
     # contruct subtable: Genres
     genre_records = [{'movie_id': row['movie_id'], 'genre_name': g.get('name'), 'genre_id': g.get('id'), 'genre_rank': rank}
                      for _, row in df.iterrows() if isinstance(row['genres_parsed'], list)
@@ -155,6 +160,7 @@ def clean_metadata(logger):
     logger.log("Metadata Success", "Saved movies_main and 3 related parquet files")
 
 
+
 def clean_ratings_and_links(logger):
     logger.log("---- [MODULE 2] ----", "Starting ratings & links cleaning")
     ratings_file = INPUT_DIR / "ratings_small.csv"
@@ -169,6 +175,7 @@ def clean_ratings_and_links(logger):
 
     # drop duplicates
     ratings = ratings[(ratings['rating'] >= 0.5) & (ratings['rating'] <= 5.0)]
+    ratings['timestamp'] = pd.to_datetime(ratings['timestamp'], unit='s')
     ratings = ratings.sort_values('timestamp').drop_duplicates(subset=['userId', 'movieId'], keep='last')
 
     # merge tmdbId

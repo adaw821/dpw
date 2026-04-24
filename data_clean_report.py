@@ -65,7 +65,7 @@ def calculate_folder_metrics(folder_path):
                 z_scores = (col_data - col_data.mean()) / col_data.std()
                 total_outliers += (z_scores.abs() > 3).sum()
                 
-    # calcukate total rate
+    # calculate total rate
     missing_rate = total_missing / total_cells if total_cells > 0 else 0
     duplicate_rate = total_duplicates / total_rows if total_rows > 0 else 0
     outliers_rate = total_outliers / total_numeric_cells if total_numeric_cells > 0 else 0

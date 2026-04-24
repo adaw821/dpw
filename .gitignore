@@ -3,3 +3,5 @@ data/processed/
 /*pyc
 /*xlsx
 __pycache__
+/*txt
+/.vscode

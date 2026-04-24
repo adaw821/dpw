@@ -9,6 +9,7 @@ from data_clean_report import compare_folders_quality
 
 from test_clean import TestDataCleaning 
 
+print("start data cleaning")
 if __name__ == "__main__":
     global_logger = DataCleanLogger(LOG_FILE)
     try:
@@ -20,14 +21,11 @@ if __name__ == "__main__":
         global_logger.log("CRITICAL ERROR", str(e))
     finally:
         global_logger.save()
-
-    print("\n" + "=" * 60)
-    print("🧪 [Step 2] Running Unit Tests...")
-    print("=" * 60)
-    
+        
+    print("running unit tests")
     unittest.main(argv=['first-arg-is-ignored'], exit=False, verbosity=2)
 
-    
+    print("create data quality report")
     final_report = compare_folders_quality(str(INPUT_DIR), str(OUTPUT_DIR))
     
     if final_report is not None:
