@@ -7,6 +7,8 @@ This project focuses on data cleaning for the TMDB movie dataset. The project di
 ├── test_clean.py        # test the data after cleaning
 ├── clean.py                 # data cleaning code 
 ├── data_cleaning_log.txt    # data cleaning log
+├── data_clean_report.py     # data quality report
+├── data_report.xlsx         
 └── README.md                # data cleaning work instruction
 ```
 ```bash
@@ -50,6 +52,10 @@ check logical validity(like budger cannot be negative)
 ensure only include the Directing and Writing departments.
 ```
 
+# 5. Data Quality Report
+```
+contain duplicate rate, missing rate, outlier rate of the raw data and clean data, and do comparison of these 2 data
+```
 # 4. Run Instructions
 Environment Requirements: Python 3.8+, pandas, numpy, pyarrow
 ```bash
