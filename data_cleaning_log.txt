@@ -1,0 +1,13 @@
+Data Cleaning Master Log
+Start time: 2026-04-24 22:21:22.944350
+End time: 2026-04-24 22:21:53.538065
+================================================================================
+[2026-04-24 22:21:22] ---- [MODULE 1] ----: Starting movies_metadata cleaning
+[2026-04-24 22:21:23] Read movies_metadata: Rows: 45466
+[2026-04-24 22:21:28] Metadata Success: Saved movies_main and 3 related parquet files
+[2026-04-24 22:21:28] ---- [MODULE 2] ----: Starting ratings & links cleaning
+[2026-04-24 22:21:28] Ratings Success: Saved ratings_clean.parquet with 9053 rows
+[2026-04-24 22:21:28] ---- [MODULE 3] ----: Starting keywords cleaning
+[2026-04-24 22:21:30] Keywords Success: Saved keywords_long.csv with 158680 rows
+[2026-04-24 22:21:30] ---- [MODULE 4] ----: Starting credits cleaning
+[2026-04-24 22:21:53] Credits Success: Saved cast.csv (202490 rows) and crew.csv (117776 rows)
