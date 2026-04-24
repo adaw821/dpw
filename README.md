@@ -1,6 +1,7 @@
 # 1.Project Structure
 This project focuses on data cleaning for the TMDB movie dataset. The project directory structure is as follows：
-```├── data/
+```
+├── data/
 │   ├── raw/                 # raw data
 │   └── processed/           # clean data
 ├── test_clean.py        # test the data after cleaning
