@@ -3,6 +3,8 @@ from sklearn.model_selection import train_test_split
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score, classification_report
 import xgboost as xgb
+import streamlit as st
+
 
 """feature engineering"""
 main = pd.read_parquet(r'C:\Users\imada\Desktop\dpw\data\processed\movies_main.parquet')
@@ -104,3 +106,72 @@ y_pred_xgb = xgb_model.predict(X_test)
 
 print("\nreport")
 print(classification_report(y_test, y_pred_xgb))
+
+"""简单试了一下参数需要改 不然没有可读性"""
+st.title("🎬 电影盈利预测系统 (ROI ≥ 2.5)")
+st.write("调整下方参数，查看 XGBoost 模型的实时预测结果。")
+
+# 获取训练集中所有出现过的 primary_genre_id
+# 从 X_train 的列名中提取出以 primary_genre_id_ 开头的列，获取它代表的实际 ID
+available_genres = []
+for col in X_train.columns:
+    if col.startswith('primary_genre_id_'):
+        # 截取 '_' 后面的数字部分
+        genre_id_str = col.replace('primary_genre_id_', '')
+        available_genres.append(float(genre_id_str)) # 你的原始数据可能是浮点数
+
+# 排序一下，让下拉菜单更好看，并补充一个提示选项
+available_genres = sorted(available_genres)
+
+# 1. 创建页面输入组件
+selected_genre_id = st.selectbox("主要类型 ID (Primary Genre ID)", available_genres)
+budget = st.number_input("电影预算 ($)", min_value=100000, value=50000000)
+genre_count = st.slider("类型数量", 1, 5, 2)
+country_count = st.slider("国家数量", 1, 5, 1)
+company_count = st.slider("制作公司数量", 1, 10, 2)
+runtime_bin = st.selectbox("时长分类", ['Short', 'Standard', 'Long'])
+director_win_rate = st.slider("导演历史胜率", 0.0, 1.0, 0.5)
+writer_win_rate = st.slider("编剧历史胜率", 0.0, 1.0, 0.5)
+
+# 2. 点击预测按钮
+if st.button("start predict"):
+    
+    # 将所有的输入装入字典 (注意这里改用 input_dict)
+    input_dict = {
+        'budget': [budget],
+        'genre_count': [genre_count],
+        'country_count': [country_count],
+        'company_count': [company_count],
+        'runtime_bin_Standard': [1 if runtime_bin == 'Standard' else 0],
+        'runtime_bin_Long': [1 if runtime_bin == 'Long' else 0],
+        'director_win_rate': [director_win_rate],
+        'writer_win_rate': [writer_win_rate]
+    }
+    
+    # 处理用户选择的分类 ID (由于 get_dummies 会将列名转为浮点数字符串，比如 primary_genre_id_12.0)
+    # 这一步需要精确匹配 X_train 里的列名格式
+    # 我们遍历 X_train 找到对应的列
+    target_col_name = None
+    for col in X_train.columns:
+        if col.startswith('primary_genre_id_') and str(selected_genre_id) in col:
+            target_col_name = col
+            break
+            
+    if target_col_name:
+        input_dict[target_col_name] = [1]
+    
+    # 转换成 DataFrame
+    input_data = pd.DataFrame(input_dict)
+    
+    # 🌟 自动对齐列名：把缺少的列补 0，并按照 X_train 的顺序排列 🌟
+    input_data = input_data.reindex(columns=X_train.columns, fill_value=0)
+    
+    # 3. 进行预测
+    prediction = xgb_model.predict(input_data)[0]
+    prob = xgb_model.predict_proba(input_data)[0][1]
+    
+    # 4. 显示结果
+    if prediction == 1:
+        st.success(f"result: maybe success！(possibility: {prob:.2%})")
+    else:
+        st.error(f"result: maybe failed (possibility: {prob:.2%})")
