@@ -1,13 +1,38 @@
-import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import accuracy_score, classification_report
-import xgboost as xgb
 import streamlit as st
+import pandas as pd
+import numpy as np
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import classification_report
+from page_design import add_title_background, add_custom_styles
+from pathlib import Path
+import xgboost as xgb
 
+st.set_page_config(
+    page_title="Film Profit Prediction System",
+    page_icon="🎬",
+    layout="wide"
+)
 
-"""feature engineering"""
-main = pd.read_parquet(r'C:\Users\imada\Desktop\dpw\data\processed\movies_main.parquet')
+# 1. 添加背景
+add_title_background(
+    title_text="🎬 Film Profit Prediction System",
+    image_path="design/background.jpg",
+    height=250,
+    speed=40,
+    opacity=0.55,
+    grayscale=True
+)
+
+# 2. 注入顺滑滑块的 CSS 样式
+add_custom_styles()
+
+# --- 数据加载与模型训练 ---
+def get_processed_data_path(filename):
+    project_root = Path(__file__).parent
+    return project_root / "data" / "processed" / filename
+
+# feature engineering
+main = pd.read_parquet(get_processed_data_path('movies_main.parquet'))
 main = main[(main['budget'] > 0) & (main['revenue'] > 0)].copy()
 main['ROI'] = main['revenue'] / main['budget']
 main['is_profitable'] = (main['ROI'] >= 2.5).astype(int)
@@ -16,27 +41,26 @@ main['runtime'] = main['runtime'].fillna(0)
 main['runtime_bin'] = pd.cut(main['runtime'], bins=[0, 90, 120, 500], labels=['Short', 'Standard', 'Long'])
 
 # Genres
-genres = pd.read_parquet(r'C:\Users\imada\Desktop\dpw\data\processed\movie_genres.parquet')
-genres = genres[genres['genre_rank'] == 1][['movie_id', 'genre_id']]
-genres = genres.rename(columns={'genre_id': 'primary_genre_id'})
+genres = pd.read_parquet(get_processed_data_path('movie_genres.parquet'))
+genres = genres[genres['genre_rank'] == 1][['movie_id', 'genre_id', 'genre_name']]
+genres = genres.rename(columns={'genre_id': 'primary_genre_id', 'genre_name': 'primary_genre_name'})
 
 # Countries
-countries = pd.read_parquet(r"C:\Users\imada\Desktop\dpw\data\processed\movie_countries.parquet")
+countries = pd.read_parquet(get_processed_data_path('movie_countries.parquet'))
 countries = countries[countries['country_rank'] == 1][['movie_id', 'country_iso']]
 countries = countries.rename(columns={'country_iso': 'primary_country_iso'})
 
 # Cast
-cast = pd.read_csv(r"C:\Users\imada\Desktop\dpw\data\processed\cast.csv")
-order_0 = cast[cast['cast_order'] == 0][['movie_id', 'person_id']].rename(columns={'person_id': 'first_actor'})
-order_1 = cast[cast['cast_order'] == 1][['movie_id', 'person_id']].rename(columns={'person_id': 'second_actor'})
-order_2 = cast[cast['cast_order'] == 2][['movie_id', 'person_id']].rename(columns={'person_id': 'third_actor'})
+cast = pd.read_csv(get_processed_data_path('cast.csv'))
+order_0 = cast[cast['cast_order'] == 0][['movie_id', 'person_id', 'person_name']].rename(columns={'person_id': 'first_actor', 'person_name': 'first_actor_name'})
+order_1 = cast[cast['cast_order'] == 1][['movie_id', 'person_id', 'person_name']].rename(columns={'person_id': 'second_actor', 'person_name': 'second_actor_name'})
+order_2 = cast[cast['cast_order'] == 2][['movie_id', 'person_id', 'person_name']].rename(columns={'person_id': 'third_actor', 'person_name': 'third_actor_name'})
 
 # Crew 
-crew = pd.read_csv(r"C:\Users\imada\Desktop\dpw\data\processed\crew.csv")
-directors = crew[crew['job_title'] == 'Director'][['movie_id', 'person_id']].rename(columns={'person_id': 'director_id'})
-novels = crew[crew['job_title'] == 'Novel'][['movie_id', 'person_id']].rename(columns={'person_id': 'novel_id'})
-writers = crew[crew['job_title'] == 'Writer'][['movie_id', 'person_id']].rename(columns={'person_id': 'writer_id'})
-
+crew = pd.read_csv(get_processed_data_path('crew.csv'))
+directors = crew[crew['job_title'] == 'Director'][['movie_id', 'person_id', 'person_name']].rename(columns={'person_id': 'director_id', 'person_name': 'director_name'})
+novels = crew[crew['job_title'] == 'Novel'][['movie_id', 'person_id', 'person_name']].rename(columns={'person_id': 'novel_id', 'person_name': 'novel_name'})
+writers = crew[crew['job_title'] == 'Writer'][['movie_id', 'person_id', 'person_name']].rename(columns={'person_id': 'writer_id', 'person_name': 'writer_name'})
 
 main = main.merge(genres, on='movie_id', how='left')
 main = main.merge(countries, on='movie_id', how='left')
@@ -47,7 +71,7 @@ main = main.merge(directors, on='movie_id', how='left')
 main = main.merge(novels, on='movie_id', how='left')
 main = main.merge(writers, on='movie_id', how='left')
 
-#missing rate process
+# missing rate process
 id_columns = ['primary_genre_id', 'first_actor', 'second_actor', 'third_actor', 'director_id', 'novel_id', 'writer_id']
 main[id_columns] = main[id_columns].fillna(-1)
 
@@ -75,7 +99,7 @@ y = main['is_profitable']
 
 X = pd.get_dummies(X_raw, columns=['runtime_bin', 'primary_genre_id'], drop_first=True)
 
-#split data 20% is testing set
+# split data 20% is testing set
 X_train, X_test, y_train, y_test = train_test_split(
     X, y, 
     test_size=0.2,       
@@ -83,13 +107,8 @@ X_train, X_test, y_train, y_test = train_test_split(
     stratify=y           
 )
 
-print(f"training set: {X_train.shape[0]}")
-print(f"testing set: {X_test.shape[0]}")
-
+# XG_boost model initialization
 weight = (y_train == 0).sum() / (y_train == 1).sum()
-print(f"scale_pos_weight: {weight:.2f}")
-
-#XG_boost model initialization
 xgb_model = xgb.XGBClassifier(
     n_estimators=200,          
     learning_rate=0.05,       
@@ -99,44 +118,127 @@ xgb_model = xgb.XGBClassifier(
     eval_metric='logloss'     
 )
 
-
 xgb_model.fit(X_train, y_train)
-
 y_pred_xgb = xgb_model.predict(X_test)
 
-print("\nreport")
-print(classification_report(y_test, y_pred_xgb))
+# --- 页面交互部分 ---
+st.write("Please adjust the parameters below to view the real-time prediction results.")
 
-"""简单试了一下参数需要改 不然没有可读性"""
-st.title("🎬 电影盈利预测系统 (ROI ≥ 2.5)")
-st.write("调整下方参数，查看 XGBoost 模型的实时预测结果。")
-
-# 获取训练集中所有出现过的 primary_genre_id
-# 从 X_train 的列名中提取出以 primary_genre_id_ 开头的列，获取它代表的实际 ID
-available_genres = []
+# 获取训练集中所有出现过的 primary_genre_id 和名称
+available_genres_with_names = []
 for col in X_train.columns:
     if col.startswith('primary_genre_id_'):
-        # 截取 '_' 后面的数字部分
         genre_id_str = col.replace('primary_genre_id_', '')
-        available_genres.append(float(genre_id_str)) # 你的原始数据可能是浮点数
+        genre_id = float(genre_id_str)
+        genre_name = genres[genres['primary_genre_id'] == genre_id]['primary_genre_name'].iloc[0] if len(genres[genres['primary_genre_id'] == genre_id]) > 0 else f"Unknown Genre ({genre_id})"
+        available_genres_with_names.append((genre_id, genre_name))
+available_genres_with_names.sort(key=lambda x: x[1]) # 按名称排序方便搜索
 
-# 排序一下，让下拉菜单更好看，并补充一个提示选项
-available_genres = sorted(available_genres)
+# 获取所有可用的导演和演员名称及ID
+available_directors_with_names = []
+for _, row in main[main['director_id'] != -1].drop_duplicates(subset=['director_id']).iterrows():
+    if pd.notna(row['director_name']):
+        available_directors_with_names.append((row['director_id'], row['director_name']))
+    else:
+        available_directors_with_names.append((row['director_id'], f"Director ({row['director_id']})"))
+# 按名字排序
+available_directors_with_names.sort(key=lambda x: x[1])
+
+available_actors_with_names = []
+for _, row in main[(main['first_actor'] != -1) | (main['second_actor'] != -1) | (main['third_actor'] != -1)].drop_duplicates(subset=['first_actor']).iterrows():
+    if pd.notna(row['first_actor_name']):
+        available_actors_with_names.append((row['first_actor'], row['first_actor_name']))
+    else:
+        available_actors_with_names.append((row['first_actor'], f"Actor ({row['first_actor']})"))
+# 按名字排序
+available_actors_with_names.sort(key=lambda x: x[1])
 
 # 1. 创建页面输入组件
-selected_genre_id = st.selectbox("主要类型 ID (Primary Genre ID)", available_genres)
-budget = st.number_input("电影预算 ($)", min_value=100000, value=50000000)
-genre_count = st.slider("类型数量", 1, 5, 2)
-country_count = st.slider("国家数量", 1, 5, 1)
-company_count = st.slider("制作公司数量", 1, 10, 2)
-runtime_bin = st.selectbox("时长分类", ['Short', 'Standard', 'Long'])
-director_win_rate = st.slider("导演历史胜率", 0.0, 1.0, 0.5)
-writer_win_rate = st.slider("编剧历史胜率", 0.0, 1.0, 0.5)
+col1, col2 = st.columns(2)
+
+with col1:
+    # 类型选择 - 支持搜索
+    genre_options = [f"{name} ({id})" for id, name in available_genres_with_names]
+    selected_genre_option = st.selectbox(
+        "Primary Genre (Type to search)", 
+        options=genre_options,
+        help="You can type to search for a specific genre."
+    )
+    # 解析选中的类型ID
+    selected_genre_parts = selected_genre_option.split('(')
+    selected_genre_id = float(selected_genre_parts[-1].rstrip(')'))
+    
+    budget = st.number_input("Movie Budget ($)", min_value=100000, value=50000000, step=100000)
+    
+    genre_count = st.slider("Number of Genres", min_value=1, max_value=5, value=2, step=1)
+    country_count = st.slider("Number of Countries", min_value=1, max_value=5, value=1, step=1)
+    company_count = st.slider("Number of Production Companies", min_value=1, max_value=10, value=2, step=1)
+
+with col2:
+    runtime_bin = st.selectbox("Runtime Category", ['Short', 'Standard', 'Long'])
+    
+    # 导演选择 - 支持搜索
+    director_options = ["Not Selected (-1)"] + [f"{name} ({id})" for id, name in available_directors_with_names]
+    selected_director_option = st.selectbox(
+        "Select Director (Type to search)", 
+        options=director_options,
+        help="Type the director's name to search the database."
+    )
+    
+    # 解析选中的导演ID
+    if selected_director_option == "Not Selected (-1)":
+        selected_director = -1
+        director_name = "Not Selected"
+    else:
+        director_parts = selected_director_option.split('(')
+        director_id_str = director_parts[-1].rstrip(')')
+        selected_director = int(float(director_id_str))
+        director_name = director_parts[0].strip()
+    
+    # 演员选择 - 支持搜索
+    actor_options = ["Not Selected (-1)"] + [f"{name} ({id})" for id, name in available_actors_with_names]
+    selected_actor_option = st.selectbox(
+        "Select Lead Actor (Type to search)", 
+        options=actor_options,
+        help="Type the actor's name to search the database."
+    )
+    
+    # 解析选中的演员ID
+    if selected_actor_option == "Not Selected (-1)":
+        selected_actor = -1
+        actor_name = "Not Selected"
+    else:
+        actor_parts = selected_actor_option.split('(')
+        actor_id_str = actor_parts[-1].rstrip(')')
+        selected_actor = int(float(actor_id_str))
+        actor_name = actor_parts[0].strip()
+    
+    # 根据选择的导演和演员获取历史成功率
+    director_win_rate = 0.5
+    if selected_director != -1:
+        director_data = main[main['director_id'] == selected_director]
+        if not director_data.empty:
+            director_win_rate = director_data['director_win_rate'].iloc[0] if pd.notna(director_data['director_win_rate'].iloc[0]) else global_win_rate
+        else:
+            director_win_rate = global_win_rate
+    
+    writer_win_rate = 0.5
+    if selected_actor != -1:
+        actor_data = main[(main['first_actor'] == selected_actor) | (main['second_actor'] == selected_actor) | (main['third_actor'] == selected_actor)]
+        if not actor_data.empty:
+            actor_win_rate = actor_data['is_profitable'].mean()
+            writer_win_rate = actor_win_rate
+        else:
+            writer_win_rate = global_win_rate
+
+    # 显示所选人员的历史数据
+    if selected_director != -1:
+        st.info(f"🎬 Director {director_name} (ID: {selected_director}) Historical Success Rate: {director_win_rate:.2%}")
+    if selected_actor != -1:
+        st.info(f"🌟 Actor {actor_name} (ID: {selected_actor}) Historical Success Rate: {writer_win_rate:.2%}")
 
 # 2. 点击预测按钮
-if st.button("start predict"):
-    
-    # 将所有的输入装入字典 (注意这里改用 input_dict)
+if st.button("Start Prediction"):
     input_dict = {
         'budget': [budget],
         'genre_count': [genre_count],
@@ -148,9 +250,6 @@ if st.button("start predict"):
         'writer_win_rate': [writer_win_rate]
     }
     
-    # 处理用户选择的分类 ID (由于 get_dummies 会将列名转为浮点数字符串，比如 primary_genre_id_12.0)
-    # 这一步需要精确匹配 X_train 里的列名格式
-    # 我们遍历 X_train 找到对应的列
     target_col_name = None
     for col in X_train.columns:
         if col.startswith('primary_genre_id_') and str(selected_genre_id) in col:
@@ -160,18 +259,13 @@ if st.button("start predict"):
     if target_col_name:
         input_dict[target_col_name] = [1]
     
-    # 转换成 DataFrame
     input_data = pd.DataFrame(input_dict)
-    
-    # 🌟 自动对齐列名：把缺少的列补 0，并按照 X_train 的顺序排列 🌟
     input_data = input_data.reindex(columns=X_train.columns, fill_value=0)
     
-    # 3. 进行预测
     prediction = xgb_model.predict(input_data)[0]
     prob = xgb_model.predict_proba(input_data)[0][1]
     
-    # 4. 显示结果
     if prediction == 1:
-        st.success(f"result: maybe success！(possibility: {prob:.2%})")
+        st.success(f"🎉 Result: Likely to be a success! (Probability: {prob:.2%})")
     else:
-        st.error(f"result: maybe failed (possibility: {prob:.2%})")
+        st.error(f"⚠️ Result: Risk of failure. (Probability: {prob:.2%})")
