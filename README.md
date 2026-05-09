@@ -52,15 +52,16 @@ check logical validity(like budger cannot be negative)
 ensure only include the Directing and Writing departments.
 ```
 
-# 5. Data Quality Report
+# 4. Data Quality Report
 ```
 contain duplicate rate, missing rate, outlier rate of the raw data and clean data, and do comparison of these 2 data
 ```
-# 4. Run Instructions
+# 5. Run Instructions
 Environment Requirements: Python 3.8+, pandas, numpy, pyarrow
+## data cleaning
 ```bash
 python main.py
 ```
-# 6. 前端运行
+## model
 ```bash
 streamlit run success_model.py

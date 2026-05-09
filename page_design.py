@@ -9,7 +9,7 @@ def get_img_as_base64(image_path):
         with open(image_path, "rb") as img_file:
             return base64.b64encode(img_file.read()).decode()
     except FileNotFoundError:
-        st.error(f"❌ Cannot find the image file: {image_path}")
+        st.error(f"Cannot find the image file: {image_path}")
         return None
 
 def add_title_background(
@@ -27,7 +27,7 @@ def add_title_background(
 
     # 检查图片是否存在
     if not os.path.exists(image_path):
-        st.error(f"❌ 图片文件不存在: {image_path}")
+        st.error(f"image file not exist: {image_path}")
         st.title(title_text)
         return
 
