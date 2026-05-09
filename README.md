@@ -60,3 +60,6 @@ contain duplicate rate, missing rate, outlier rate of the raw data and clean dat
 Environment Requirements: Python 3.8+, pandas, numpy, pyarrow
 ```bash
 python main.py
+# 6. 前端运行
+```bash
+streamlit run success_model.py
