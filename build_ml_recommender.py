@@ -11,10 +11,12 @@ import random
 
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import train_test_split
 
-PROJECT_ROOT = Path("C:/Users/18314/Desktop/作业/dpw/dpw")
-DATA_PROCESSED = PROJECT_ROOT / "data" / "processed"
+
+PROJECT_ROOT = Path(__file__).resolve().parent
+ANALYSIS_FILE = PROJECT_ROOT / "recommendation_outputs" / "recommendation_analysis_table.parquet"
+ANALYSIS_FILE_FALLBACK = PROJECT_ROOT / "data" / "processed" / "recommendation_analysis_table.parquet"
+RATINGS_FILE = PROJECT_ROOT / "data" / "processed" / "final_ratings_raw.parquet"
 OUTPUT_DIR = PROJECT_ROOT / "recommendation_outputs" / "ml_recommender"
 TABLE_DIR = OUTPUT_DIR / "tables"
 
@@ -23,8 +25,7 @@ LIKE_THRESHOLD = 4.0
 MIN_CO_LIKES = 2
 MAX_POSITIVE_PAIRS = 4000
 MAX_NEGATIVE_PAIRS = 4000
-TEST_SIZE = 0.2
-TOP_K_VALUES = [1, 5, 10]
+TIME_SPLIT_QUANTILE = 0.8
 
 
 @dataclass
@@ -46,18 +47,6 @@ class MLRecommendation:
     shared_directors: str
     avg_user_rating: float
     unique_users: float
-
-
-@dataclass
-class EvaluationMetrics:
-    precision_at_k: dict[int, float]
-    recall_at_k: dict[int, float]
-    ndcg_at_k: dict[int, float]
-    mae: float
-    rmse: float
-    test_size: int
-    train_size: int
-    num_test_pairs: int
 
 
 def ensure_dirs() -> None:
@@ -92,127 +81,18 @@ def compute_quality_score(df: pd.DataFrame) -> pd.Series:
 
 
 def load_data() -> tuple[pd.DataFrame, pd.DataFrame]:
-    """加载数据并构建推荐系统需要的特征表"""
-    print("=" * 60)
-    print("加载数据...")
-    print("=" * 60)
+    analysis_path = ANALYSIS_FILE if ANALYSIS_FILE.exists() else ANALYSIS_FILE_FALLBACK
+    movies = pd.read_parquet(analysis_path)
+    ratings = pd.read_parquet(RATINGS_FILE)
+    movies = movies[movies["eligible_for_content_rec"]].copy()
+    if "rating_date" in ratings.columns:
+        ratings["rating_date"] = pd.to_datetime(ratings["rating_date"], errors="coerce")
 
-    # 1. 加载评分聚合数据
-    ratings_agg = pd.read_parquet(DATA_PROCESSED / "ratings_clean.parquet")
-    print(f"评分聚合数据: {len(ratings_agg)} 部电影")
+    for col in ["genres_list", "keywords_list", "top_cast_list", "director_list"]:
+        movies[col] = movies[col].apply(normalize_list)
 
-    # 2. 加载电影主表
-    movies = pd.read_parquet(DATA_PROCESSED / "movies_main.parquet")
-    print(f"电影主表: {len(movies)} 部")
-
-    # 3. 合并
-    df = movies.merge(ratings_agg, on='movie_id', how='left')
-    df['avg_user_rating'] = df['avg_user_rating'].fillna(0)
-    df['unique_users'] = df['user_rating_count'].fillna(0)
-
-    # 4. 加载 genres
-    genres_df = pd.read_parquet(DATA_PROCESSED / "movie_genres.parquet")
-    genres_agg = genres_df.groupby('movie_id')['genre_name'].agg(list).reset_index()
-    genres_agg.columns = ['movie_id', 'genres_list']
-    df = df.merge(genres_agg, on='movie_id', how='left')
-    print(f"Genres 数据: {len(genres_df)} 条, {df['genres_list'].notna().sum()} 部电影有类型")
-
-    # 5. 加载 keywords
-    keywords_file = DATA_PROCESSED / "keywords_long.csv"
-    if keywords_file.exists():
-        keywords_df = pd.read_csv(keywords_file)
-        keywords_agg = keywords_df.groupby('movie_id')['keyword_name'].agg(list).reset_index()
-        keywords_agg.columns = ['movie_id', 'keywords_list']
-        df = df.merge(keywords_agg, on='movie_id', how='left')
-        print(f"Keywords 数据: {len(keywords_df)} 条, {df['keywords_list'].notna().sum()} 部电影有关键词")
-    else:
-        df['keywords_list'] = [[] for _ in range(len(df))]
-
-    # 6. 加载 cast
-    cast_file = DATA_PROCESSED / "cast.csv"
-    if cast_file.exists():
-        cast_df = pd.read_csv(cast_file)
-        cast_df_sorted = cast_df.sort_values(['movie_id', 'cast_order'])
-        cast_agg = cast_df_sorted.groupby('movie_id')['person_name'].agg(lambda x: list(x.head(5))).reset_index()
-        cast_agg.columns = ['movie_id', 'top_cast_list']
-        df = df.merge(cast_agg, on='movie_id', how='left')
-        print(f"Cast 数据: {len(cast_df)} 条, {df['top_cast_list'].notna().sum()} 部电影有演员")
-    else:
-        df['top_cast_list'] = [[] for _ in range(len(df))]
-
-    # 7. 加载 directors
-    crew_file = DATA_PROCESSED / "crew.csv"
-    if crew_file.exists():
-        crew_df = pd.read_csv(crew_file)
-        directors_df = crew_df[crew_df['job_title'] == 'Director']
-        directors_agg = directors_df.groupby('movie_id')['person_name'].agg(list).reset_index()
-        directors_agg.columns = ['movie_id', 'director_list']
-        df = df.merge(directors_agg, on='movie_id', how='left')
-        print(f"Directors 数据: {len(directors_df)} 条, {df['director_list'].notna().sum()} 部电影有导演")
-    else:
-        df['director_list'] = [[] for _ in range(len(df))]
-
-    # 8. 填充缺失值
-    for col in ['genres_list', 'keywords_list', 'top_cast_list', 'director_list']:
-        df[col] = df[col].apply(lambda x: x if isinstance(x, list) else [])
-
-    # 9. 创建推荐文本
-    df['recommendation_text'] = df.apply(
-        lambda x: ' '.join(x['genres_list']) + ' ' +
-                  ' '.join(x['keywords_list']) + ' ' +
-                  ' '.join(x['top_cast_list']) + ' ' +
-                  ' '.join(x['director_list']),
-        axis=1
-    )
-
-    # 10. 创建标题年份
-    df['title_year'] = df.apply(
-        lambda x: f"{x['title']} ({int(x['release_year']) if pd.notna(x['release_year']) else 'Unknown'})",
-        axis=1
-    )
-
-    # 11. 设置标志
-    df['eligible_for_content_rec'] = True
-    df['eligible_for_cf'] = df['unique_users'] >= 5
-
-    # 12. 质量分数
-    df['quality_score'] = compute_quality_score(df)
-
-    print(f"\n最终分析表: {len(df)} 部电影")
-    print(f"  可用于协同过滤 (≥5评分): {df['eligible_for_cf'].sum()}")
-
-    # 13. 构建模拟的用户评分数据
-    print("\n构建模拟用户评分数据（用于协同过滤训练）...")
-    np.random.seed(RANDOM_SEED)
-    simulated_ratings = []
-
-    cf_movies = df[df['eligible_for_cf']].copy()
-    n_users = 300
-
-    for user_id in range(n_users):
-        n_ratings = np.random.randint(30, min(80, len(cf_movies)))
-        selected_movies = cf_movies.sample(n=n_ratings)
-        for _, movie in selected_movies.iterrows():
-            base_rating = movie['avg_user_rating']
-            if base_rating == 0:
-                rating = np.random.choice([3.0, 3.5, 4.0, 4.5, 5.0])
-            else:
-                rating = np.clip(base_rating + np.random.normal(0, 0.8), 0.5, 5.0)
-            rating = round(rating * 2) / 2
-            simulated_ratings.append({
-                'userId': user_id,
-                'tmdbId': movie['movie_id'],
-                'rating': rating,
-                'timestamp': 946684800
-            })
-
-    ratings = pd.DataFrame(simulated_ratings)
-    ratings = ratings.drop_duplicates(subset=['userId', 'tmdbId'])
-
-    print(
-        f"模拟用户评分: {len(ratings)} 条, {ratings['userId'].nunique()} 个用户, {ratings['tmdbId'].nunique()} 部电影")
-
-    return df, ratings
+    movies["quality_score"] = compute_quality_score(movies)
+    return movies, ratings
 
 
 def tokenize(text: str) -> list[str]:
@@ -220,7 +100,6 @@ def tokenize(text: str) -> list[str]:
 
 
 def build_tfidf_vectors(df: pd.DataFrame) -> tuple[dict[int, dict[str, float]], dict[int, float]]:
-    print("构建 TF-IDF 向量...")
     doc_freq: Counter[str] = Counter()
     doc_tokens: dict[int, Counter[str]] = {}
 
@@ -243,12 +122,10 @@ def build_tfidf_vectors(df: pd.DataFrame) -> tuple[dict[int, dict[str, float]], 
         tfidf_vectors[movie_id] = vector
         norms[movie_id] = norm
 
-    print(f"  TF-IDF 向量构建完成: {len(tfidf_vectors)} 部电影")
     return tfidf_vectors, norms
 
 
-def cosine_similarity_sparse(left: dict[str, float], right: dict[str, float], left_norm: float,
-                             right_norm: float) -> float:
+def cosine_similarity_sparse(left: dict[str, float], right: dict[str, float], left_norm: float, right_norm: float) -> float:
     if left_norm == 0 or right_norm == 0:
         return 0.0
     if len(left) > len(right):
@@ -281,6 +158,14 @@ def build_liked_users(ratings: pd.DataFrame, valid_movie_ids: set[int]) -> dict[
     return {int(movie_id): users for movie_id, users in grouped.items()}
 
 
+def split_ratings_by_time(ratings: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, pd.Timestamp]:
+    usable = ratings.dropna(subset=["rating_date"]).copy()
+    cutoff = usable["rating_date"].quantile(TIME_SPLIT_QUANTILE)
+    train_ratings = usable[usable["rating_date"] <= cutoff].copy()
+    test_ratings = usable[usable["rating_date"] > cutoff].copy()
+    return train_ratings, test_ratings, cutoff
+
+
 def build_positive_pairs(ratings: pd.DataFrame, valid_movie_ids: set[int]) -> list[tuple[int, int]]:
     liked = ratings[(ratings["rating"] >= LIKE_THRESHOLD) & ratings["tmdbId"].isin(valid_movie_ids)].copy()
     pair_counts: Counter[tuple[int, int]] = Counter()
@@ -298,9 +183,9 @@ def build_positive_pairs(ratings: pd.DataFrame, valid_movie_ids: set[int]) -> li
 
 
 def build_negative_pairs(
-        movie_ids: list[int],
-        positive_set: set[tuple[int, int]],
-        pair_count: int,
+    movie_ids: list[int],
+    positive_set: set[tuple[int, int]],
+    pair_count: int,
 ) -> list[tuple[int, int]]:
     rng = random.Random(RANDOM_SEED)
     negatives: set[tuple[int, int]] = set()
@@ -323,11 +208,11 @@ def collaborative_target(left_users: set[int], right_users: set[int]) -> float:
 
 
 def build_pair_features(
-        pair: tuple[int, int],
-        movie_lookup: dict[int, pd.Series],
-        tfidf_vectors: dict[int, dict[str, float]],
-        norms: dict[int, float],
-        liked_users: dict[int, set[int]],
+    pair: tuple[int, int],
+    movie_lookup: dict[int, pd.Series],
+    tfidf_vectors: dict[int, dict[str, float]],
+    norms: dict[int, float],
+    liked_users: dict[int, set[int]],
 ) -> tuple[list[float], float]:
     left_id, right_id = pair
     left = movie_lookup[left_id]
@@ -360,105 +245,133 @@ def build_pair_features(
     return features, target
 
 
-def fit_linear_regression(feature_rows: list[list[float]], targets: list[float]) -> tuple[np.ndarray, np.ndarray]:
+def fit_linear_regression(feature_rows: list[list[float]], targets: list[float]) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     x = np.asarray(feature_rows, dtype=float)
     y = np.asarray(targets, dtype=float)
     x_with_bias = np.c_[np.ones(len(x)), x]
     beta, _, _, _ = np.linalg.lstsq(x_with_bias, y, rcond=None)
 
     intercept = beta[0]
-    weights = beta[1:]
-    weights = np.clip(weights, 0, None)
-    if weights.sum() == 0:
-        weights = np.array([0.35, 0.30, 0.20, 0.15, 0.25], dtype=float)
-    weights = weights / weights.sum()
-    return np.array([intercept], dtype=float), weights
+    raw_weights = beta[1:]
+    ranking_weights = np.clip(raw_weights, 0, None)
+    if ranking_weights.sum() == 0:
+        ranking_weights = np.array([0.35, 0.30, 0.20, 0.15, 0.25], dtype=float)
+    ranking_weights = ranking_weights / ranking_weights.sum()
+    return np.array([intercept], dtype=float), raw_weights, ranking_weights
 
 
-def split_movies_by_time(df: pd.DataFrame, test_size: float = 0.2) -> tuple[set[int], set[int]]:
-    """按上映年份划分（用老电影训练，新电影测试）"""
-    cf_movies = df[df["eligible_for_cf"]].copy()
-    # 按上映年份排序
-    cf_movies_sorted = cf_movies.sort_values("release_year")
-
-    split_idx = int(len(cf_movies_sorted) * (1 - test_size))
-    train_movies = set(cf_movies_sorted.iloc[:split_idx]["movie_id"].values)
-    test_movies = set(cf_movies_sorted.iloc[split_idx:]["movie_id"].values)
-
-    print(f"\n时间划分结果:")
-    print(f"  训练集电影: {len(train_movies)} 部")
-    print(
-        f"    年份范围: {cf_movies_sorted.iloc[:split_idx]['release_year'].min():.0f} - {cf_movies_sorted.iloc[:split_idx]['release_year'].max():.0f}")
-    print(f"  测试集电影: {len(test_movies)} 部")
-    print(
-        f"    年份范围: {cf_movies_sorted.iloc[split_idx:]['release_year'].min():.0f} - {cf_movies_sorted.iloc[split_idx:]['release_year'].max():.0f}")
-
-    return train_movies, test_movies
+def predict_targets(feature_rows: list[list[float]], intercept: np.ndarray, raw_weights: np.ndarray) -> np.ndarray:
+    x = np.asarray(feature_rows, dtype=float)
+    preds = float(intercept[0]) + x @ raw_weights
+    return np.clip(preds, 0.0, 1.0)
 
 
-def compute_ndcg(relevant_items: set[int], recommended_items: list[int], k: int) -> float:
-    recommended_k = recommended_items[:k]
-    dcg = 0.0
-    for i, item in enumerate(recommended_k):
-        if item in relevant_items:
-            dcg += 1.0 / math.log2(i + 2)
-    ideal_relevant_count = min(len(relevant_items), k)
-    idcg = sum(1.0 / math.log2(i + 2) for i in range(ideal_relevant_count))
-    return dcg / idcg if idcg > 0 else 0.0
+def evaluate_predictions(targets: list[float], preds: np.ndarray) -> dict[str, float]:
+    y_true = np.asarray(targets, dtype=float)
+    rmse = float(np.sqrt(np.mean((preds - y_true) ** 2))) if len(y_true) else float("nan")
+    mae = float(np.mean(np.abs(preds - y_true))) if len(y_true) else float("nan")
+    if len(y_true) > 1 and np.std(y_true) > 0 and np.std(preds) > 0:
+        corr = float(np.corrcoef(y_true, preds)[0, 1])
+    else:
+        corr = float("nan")
+    return {
+        "rmse": rmse,
+        "mae": mae,
+        "pearson_corr": corr,
+        "target_mean": float(np.mean(y_true)) if len(y_true) else float("nan"),
+        "pred_mean": float(np.mean(preds)) if len(y_true) else float("nan"),
+    }
 
 
-def evaluate_recommendations(
-        test_pairs: list[tuple[int, int]],
-        movie_lookup: dict[int, pd.Series],
-        tfidf_vectors: dict[int, dict[str, float]],
-        norms: dict[int, float],
-        weights: np.ndarray,
-        top_k_list: list[int] = [1, 5, 10],
-) -> dict[int, tuple[float, float, float]]:
-    results = {k: {"precision": [], "recall": [], "ndcg": []} for k in top_k_list}
+def build_pair_dataset(
+    source_ratings: pd.DataFrame,
+    valid_movie_ids: set[int],
+    movie_lookup: dict[int, pd.Series],
+    tfidf_vectors: dict[int, dict[str, float]],
+    norms: dict[int, float],
+    limit_positive_pairs: int,
+    limit_negative_pairs: int,
+) -> tuple[pd.DataFrame, list[list[float]], list[float]]:
+    liked_users = build_liked_users(source_ratings, valid_movie_ids)
+    positive_pairs = build_positive_pairs(source_ratings, valid_movie_ids)[:limit_positive_pairs]
+    positive_set = set(positive_pairs)
+    negative_pairs = build_negative_pairs(sorted(valid_movie_ids), positive_set, min(len(positive_pairs), limit_negative_pairs))
+    all_pairs = positive_pairs + negative_pairs
 
-    for left_id, right_id in test_pairs:
-        if left_id not in movie_lookup or right_id not in movie_lookup:
+    feature_rows: list[list[float]] = []
+    targets: list[float] = []
+    pair_records: list[dict[str, float | int | str]] = []
+
+    for pair in all_pairs:
+        if pair[0] not in movie_lookup or pair[1] not in movie_lookup:
             continue
-
-        query = movie_lookup[left_id]
-        candidates = []
-        for candidate_id, candidate in movie_lookup.items():
-            if candidate_id == left_id:
-                continue
-            content_score, _ = compute_content_score(query, candidate, tfidf_vectors, norms, weights)
-            candidates.append((candidate_id, content_score))
-
-        candidates.sort(key=lambda x: x[1], reverse=True)
-        recommended_ids = [c[0] for c in candidates[:max(top_k_list)]]
-
-        for k in top_k_list:
-            relevant = {right_id}
-            recommended_k = recommended_ids[:k]
-            hits = sum(1 for item in recommended_k if item in relevant)
-            precision = hits / k
-            recall = hits / len(relevant) if len(relevant) > 0 else 0.0
-            ndcg = compute_ndcg(relevant, recommended_ids, k)
-            results[k]["precision"].append(precision)
-            results[k]["recall"].append(recall)
-            results[k]["ndcg"].append(ndcg)
-
-    avg_results = {}
-    for k in top_k_list:
-        avg_results[k] = (
-            np.mean(results[k]["precision"]) if results[k]["precision"] else 0.0,
-            np.mean(results[k]["recall"]) if results[k]["recall"] else 0.0,
-            np.mean(results[k]["ndcg"]) if results[k]["ndcg"] else 0.0,
+        features, target = build_pair_features(pair, movie_lookup, tfidf_vectors, norms, liked_users)
+        feature_rows.append(features)
+        targets.append(target)
+        pair_records.append(
+            {
+                "left_movie_id": pair[0],
+                "right_movie_id": pair[1],
+                "genre_jaccard": features[0],
+                "keyword_jaccard": features[1],
+                "cast_jaccard": features[2],
+                "director_jaccard": features[3],
+                "semantic_similarity": features[4],
+                "collaborative_target": target,
+                "pair_type": "positive" if pair in positive_set else "negative",
+            }
         )
-    return avg_results
+    return pd.DataFrame(pair_records), feature_rows, targets
+
+
+def train_weight_model(
+    df: pd.DataFrame,
+    ratings: pd.DataFrame,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, pd.DataFrame, pd.DataFrame, dict[str, float], dict[str, str], dict[int, dict[str, float]], dict[int, float]]:
+    cf_df = df[df["eligible_for_cf"]].copy()
+    valid_movie_ids = set(int(x) for x in cf_df["movie_id"].tolist())
+    movie_lookup = build_movie_lookup(cf_df)
+    tfidf_vectors, norms = build_tfidf_vectors(df)
+    train_ratings, test_ratings, cutoff = split_ratings_by_time(ratings)
+
+    training_pairs, train_features, train_targets = build_pair_dataset(
+        train_ratings,
+        valid_movie_ids,
+        movie_lookup,
+        tfidf_vectors,
+        norms,
+        MAX_POSITIVE_PAIRS,
+        MAX_NEGATIVE_PAIRS,
+    )
+    test_pairs, test_features, test_targets = build_pair_dataset(
+        test_ratings,
+        valid_movie_ids,
+        movie_lookup,
+        tfidf_vectors,
+        norms,
+        max(MAX_POSITIVE_PAIRS // 2, 1000),
+        max(MAX_NEGATIVE_PAIRS // 2, 1000),
+    )
+
+    intercept, raw_weights, ranking_weights = fit_linear_regression(train_features, train_targets)
+    test_preds = predict_targets(test_features, intercept, raw_weights)
+    metrics = evaluate_predictions(test_targets, test_preds)
+    split_info = {
+        "cutoff_date": str(cutoff),
+        "train_min_date": str(train_ratings["rating_date"].min()),
+        "train_max_date": str(train_ratings["rating_date"].max()),
+        "test_min_date": str(test_ratings["rating_date"].min()),
+        "test_max_date": str(test_ratings["rating_date"].max()),
+    }
+    return intercept, raw_weights, ranking_weights, training_pairs, test_pairs, metrics, split_info, tfidf_vectors, norms
 
 
 def compute_content_score(
-        query: pd.Series,
-        candidate: pd.Series,
-        tfidf_vectors: dict[int, dict[str, float]],
-        norms: dict[int, float],
-        weights: np.ndarray,
+    query: pd.Series,
+    candidate: pd.Series,
+    tfidf_vectors: dict[int, dict[str, float]],
+    norms: dict[int, float],
+    weights: np.ndarray,
 ) -> tuple[float, list[float]]:
     q_genres = set(query["genres_list"])
     c_genres = set(candidate["genres_list"])
@@ -492,14 +405,14 @@ def join_values(values: Iterable[str], limit: int = 4) -> str:
 
 
 def recommend(
-        df: pd.DataFrame,
-        title_lookup: dict[str, int],
-        tfidf_vectors: dict[int, dict[str, float]],
-        norms: dict[int, float],
-        weights: np.ndarray,
-        query_title_year: str,
-        top_n: int = 10,
-        min_unique_users: int = 5,
+    df: pd.DataFrame,
+    title_lookup: dict[str, int],
+    tfidf_vectors: dict[int, dict[str, float]],
+    norms: dict[int, float],
+    weights: np.ndarray,
+    query_title_year: str,
+    top_n: int = 10,
+    min_unique_users: int = 5,
 ) -> list[MLRecommendation]:
     if query_title_year not in title_lookup:
         raise KeyError(f"title_year not found: {query_title_year}")
@@ -507,8 +420,31 @@ def recommend(
     query_id = title_lookup[query_title_year]
     query = df[df["movie_id"] == query_id].iloc[0]
 
+    # Speed optimization: do not score every movie in a large dataset.
+    # First keep movies with enough rating coverage, then prefer movies that share
+    # at least one genre with the query, and finally cap the candidate pool by popularity.
+    query_genres = set(query["genres_list"])
+    candidate_df = df.copy()
+
+    candidate_df = candidate_df[
+        candidate_df["unique_users"].fillna(0) >= min_unique_users
+    ]
+
+    if query_genres:
+        candidate_df = candidate_df[
+            candidate_df["genres_list"].apply(lambda values: len(query_genres & set(values)) > 0)
+        ]
+
+    candidate_limit = 5000
+    if "popularity" in candidate_df.columns:
+        candidate_df = candidate_df.sort_values("popularity", ascending=False).head(candidate_limit)
+    elif "vote_count" in candidate_df.columns:
+        candidate_df = candidate_df.sort_values("vote_count", ascending=False).head(candidate_limit)
+    else:
+        candidate_df = candidate_df.head(candidate_limit)
+
     recommendations: list[MLRecommendation] = []
-    for _, row in df.iterrows():
+    for _, row in candidate_df.iterrows():
         if int(row["movie_id"]) == query_id:
             continue
         if float(row["unique_users"] if pd.notna(row["unique_users"]) else 0) < min_unique_users:
@@ -537,8 +473,7 @@ def recommend(
                 shared_keywords=join_values(set(query["keywords_list"]) & set(row["keywords_list"]), limit=6),
                 shared_cast=join_values(set(query["top_cast_list"]) & set(row["top_cast_list"])),
                 shared_directors=join_values(set(query["director_list"]) & set(row["director_list"])),
-                avg_user_rating=round(float(row["avg_user_rating"]), 2) if pd.notna(row["avg_user_rating"]) else float(
-                    "nan"),
+                avg_user_rating=round(float(row["avg_user_rating"]), 2) if pd.notna(row["avg_user_rating"]) else float("nan"),
                 unique_users=round(float(row["unique_users"]), 0) if pd.notna(row["unique_users"]) else float("nan"),
             )
         )
@@ -547,240 +482,158 @@ def recommend(
     return recommendations[:top_n]
 
 
-def train_weight_model_with_evaluation(
-        df: pd.DataFrame,
-        ratings: pd.DataFrame,
-) -> tuple[np.ndarray, np.ndarray, pd.DataFrame, dict[int, dict[str, float]], dict[int, float], dict[
-    int, set[int]], EvaluationMetrics]:
-    print("\n" + "=" * 60)
-    print("训练模型...")
-    print("=" * 60)
-
-    # 使用时间划分（老电影训练，新电影测试）
-    train_movies, test_movies = split_movies_by_time(df, TEST_SIZE)
-
-    train_df = df[df["movie_id"].isin(train_movies) & df["eligible_for_cf"]].copy()
-    train_ratings = ratings[ratings["tmdbId"].isin(train_movies)].copy()
-
-    print(f"训练样本: {len(train_df)} 部电影, {len(train_ratings)} 条评分")
-
-    movie_lookup = build_movie_lookup(train_df)
-    tfidf_vectors, norms = build_tfidf_vectors(df)
-    liked_users = build_liked_users(train_ratings, train_movies)
-
-    positive_pairs = build_positive_pairs(train_ratings, train_movies)
-    positive_set = set(positive_pairs)
-    negative_pairs = build_negative_pairs(
-        sorted(train_movies), positive_set,
-        min(len(positive_pairs), MAX_NEGATIVE_PAIRS)
+def save_training_outputs(
+    intercept: np.ndarray,
+    raw_weights: np.ndarray,
+    ranking_weights: np.ndarray,
+    training_pairs: pd.DataFrame,
+    test_pairs: pd.DataFrame,
+    metrics: dict[str, float],
+    split_info: dict[str, str],
+) -> None:
+    weight_df = pd.DataFrame(
+        [
+            {"feature": "intercept", "weight": round(float(intercept[0]), 6)},
+            {"feature": "genre_jaccard_raw", "weight": round(float(raw_weights[0]), 6)},
+            {"feature": "keyword_jaccard_raw", "weight": round(float(raw_weights[1]), 6)},
+            {"feature": "cast_jaccard_raw", "weight": round(float(raw_weights[2]), 6)},
+            {"feature": "director_jaccard_raw", "weight": round(float(raw_weights[3]), 6)},
+            {"feature": "semantic_similarity_raw", "weight": round(float(raw_weights[4]), 6)},
+            {"feature": "genre_jaccard_rank_weight", "weight": round(float(ranking_weights[0]), 6)},
+            {"feature": "keyword_jaccard_rank_weight", "weight": round(float(ranking_weights[1]), 6)},
+            {"feature": "cast_jaccard_rank_weight", "weight": round(float(ranking_weights[2]), 6)},
+            {"feature": "director_jaccard_rank_weight", "weight": round(float(ranking_weights[3]), 6)},
+            {"feature": "semantic_similarity_rank_weight", "weight": round(float(ranking_weights[4]), 6)},
+        ]
     )
-    all_pairs = positive_pairs + negative_pairs
-
-    print(f"正样本对: {len(positive_pairs)}, 负样本对: {len(negative_pairs)}")
-
-    if len(positive_pairs) == 0:
-        print("警告: 没有正样本对！使用默认权重")
-        weights = np.array([0.35, 0.30, 0.20, 0.15, 0.25])
-        weights = weights / weights.sum()
-        intercept = np.array([0.0])
-
-        all_pairs_df = pd.DataFrame()
-
-        metrics = EvaluationMetrics(
-            precision_at_k={k: 0.0 for k in TOP_K_VALUES},
-            recall_at_k={k: 0.0 for k in TOP_K_VALUES},
-            ndcg_at_k={k: 0.0 for k in TOP_K_VALUES},
-            mae=0.0,
-            rmse=0.0,
-            test_size=len(test_movies),
-            train_size=len(train_movies),
-            num_test_pairs=0,
-        )
-
-        return intercept, weights, all_pairs_df, tfidf_vectors, norms, liked_users, metrics
-
-    feature_rows: list[list[float]] = []
-    targets: list[float] = []
-    pair_records: list[dict] = []
-
-    for pair in all_pairs:
-        if pair[0] not in movie_lookup or pair[1] not in movie_lookup:
-            continue
-        features, target = build_pair_features(pair, movie_lookup, tfidf_vectors, norms, liked_users)
-        feature_rows.append(features)
-        targets.append(target)
-        pair_records.append({
-            "left_movie_id": pair[0],
-            "right_movie_id": pair[1],
-            "genre_jaccard": features[0],
-            "keyword_jaccard": features[1],
-            "cast_jaccard": features[2],
-            "director_jaccard": features[3],
-            "semantic_similarity": features[4],
-            "collaborative_target": target,
-            "pair_type": "positive" if pair in positive_set else "negative",
-            "dataset": "train",
-        })
-
-    intercept, weights = fit_linear_regression(feature_rows, targets)
-    print(f"\n学习到的权重:")
-    print(f"  genre_jaccard: {weights[0]:.4f}")
-    print(f"  keyword_jaccard: {weights[1]:.4f}")
-    print(f"  cast_jaccard: {weights[2]:.4f}")
-    print(f"  director_jaccard: {weights[3]:.4f}")
-    print(f"  semantic_similarity: {weights[4]:.4f}")
-
-    # 测试评估
-    print("\n" + "=" * 60)
-    print("评估模型...")
-    print("=" * 60)
-
-    test_df = df[df["movie_id"].isin(test_movies)].copy()
-    test_ratings = ratings[ratings["tmdbId"].isin(test_movies)].copy()
-    test_liked_users = build_liked_users(test_ratings, test_movies)
-    test_movie_lookup = build_movie_lookup(test_df)
-    test_positive_pairs = build_positive_pairs(test_ratings, test_movies)
-
-    print(f"测试集正样本对: {len(test_positive_pairs)}")
-
-    predicted_scores = []
-    actual_targets = []
-
-    for left_id, right_id in test_positive_pairs[:500]:
-        if left_id not in test_movie_lookup or right_id not in test_movie_lookup:
-            continue
-        features, actual = build_pair_features(
-            (left_id, right_id), test_movie_lookup, tfidf_vectors, norms, test_liked_users
-        )
-        predicted = float(np.dot(weights, np.asarray(features, dtype=float)))
-        predicted_scores.append(predicted)
-        actual_targets.append(actual)
-        pair_records.append({
-            "left_movie_id": left_id,
-            "right_movie_id": right_id,
-            "genre_jaccard": features[0],
-            "keyword_jaccard": features[1],
-            "cast_jaccard": features[2],
-            "director_jaccard": features[3],
-            "semantic_similarity": features[4],
-            "collaborative_target": actual,
-            "pair_type": "test_positive",
-            "dataset": "test",
-        })
-
-    if predicted_scores:
-        predicted_scores = np.array(predicted_scores)
-        actual_targets = np.array(actual_targets)
-        mae = np.mean(np.abs(predicted_scores - actual_targets))
-        rmse = np.sqrt(np.mean((predicted_scores - actual_targets) ** 2))
-    else:
-        mae = rmse = 0.0
-
-    # 推荐质量评估
-    if test_positive_pairs:
-        recommendation_metrics = evaluate_recommendations(
-            test_positive_pairs[:200], test_movie_lookup, tfidf_vectors, norms, weights, TOP_K_VALUES,
-        )
-        precision_at_k = {k: v[0] for k, v in recommendation_metrics.items()}
-        recall_at_k = {k: v[1] for k, v in recommendation_metrics.items()}
-        ndcg_at_k = {k: v[2] for k, v in recommendation_metrics.items()}
-    else:
-        precision_at_k = {k: 0.0 for k in TOP_K_VALUES}
-        recall_at_k = {k: 0.0 for k in TOP_K_VALUES}
-        ndcg_at_k = {k: 0.0 for k in TOP_K_VALUES}
-
-    metrics = EvaluationMetrics(
-        precision_at_k=precision_at_k,
-        recall_at_k=recall_at_k,
-        ndcg_at_k=ndcg_at_k,
-        mae=mae,
-        rmse=rmse,
-        test_size=len(test_movies),
-        train_size=len(train_movies),
-        num_test_pairs=len(test_positive_pairs),
-    )
-
-    all_pairs_df = pd.DataFrame(pair_records)
-    return intercept, weights, all_pairs_df, tfidf_vectors, norms, liked_users, metrics
-
-
-def save_results(intercept: np.ndarray, weights: np.ndarray, all_pairs: pd.DataFrame,
-                 metrics: EvaluationMetrics, df: pd.DataFrame, title_lookup: dict,
-                 tfidf_vectors: dict, norms: dict) -> None:
-    # 保存权重
-    weight_df = pd.DataFrame([
-        {"feature": "intercept", "weight": round(float(intercept[0]), 6)},
-        {"feature": "genre_jaccard", "weight": round(float(weights[0]), 6)},
-        {"feature": "keyword_jaccard", "weight": round(float(weights[1]), 6)},
-        {"feature": "cast_jaccard", "weight": round(float(weights[2]), 6)},
-        {"feature": "director_jaccard", "weight": round(float(weights[3]), 6)},
-        {"feature": "semantic_similarity", "weight": round(float(weights[4]), 6)},
-    ])
     weight_df.to_csv(TABLE_DIR / "learned_weights.csv", index=False, encoding="utf-8-sig")
+    training_pairs.to_csv(TABLE_DIR / "training_pairs_sample.csv", index=False, encoding="utf-8-sig")
+    test_pairs.to_csv(TABLE_DIR / "test_pairs_sample.csv", index=False, encoding="utf-8-sig")
 
-    # 保存评估指标
-    metrics_df = pd.DataFrame([
-                                  {"metric": f"precision@{k}", "value": v} for k, v in metrics.precision_at_k.items()
-                              ] + [
-                                  {"metric": f"recall@{k}", "value": v} for k, v in metrics.recall_at_k.items()
-                              ] + [
-                                  {"metric": f"ndcg@{k}", "value": v} for k, v in metrics.ndcg_at_k.items()
-                              ] + [
-                                  {"metric": "mae", "value": metrics.mae},
-                                  {"metric": "rmse", "value": metrics.rmse},
-                                  {"metric": "train_movies", "value": metrics.train_size},
-                                  {"metric": "test_movies", "value": metrics.test_size},
-                                  {"metric": "test_pairs", "value": metrics.num_test_pairs},
-                              ])
-    metrics_df.to_csv(TABLE_DIR / "evaluation_metrics.csv", index=False, encoding="utf-8-sig")
+    evaluation_df = pd.DataFrame(
+        [
+            {"metric": "rmse", "value": round(metrics["rmse"], 6)},
+            {"metric": "mae", "value": round(metrics["mae"], 6)},
+            {"metric": "pearson_corr", "value": round(metrics["pearson_corr"], 6) if not np.isnan(metrics["pearson_corr"]) else np.nan},
+            {"metric": "target_mean", "value": round(metrics["target_mean"], 6)},
+            {"metric": "pred_mean", "value": round(metrics["pred_mean"], 6)},
+            {"metric": "train_pair_count", "value": len(training_pairs)},
+            {"metric": "test_pair_count", "value": len(test_pairs)},
+        ]
+    )
+    evaluation_df.to_csv(TABLE_DIR / "evaluation_metrics.csv", index=False, encoding="utf-8-sig")
 
-    # 保存训练对
-    if len(all_pairs) > 0:
-        all_pairs.to_csv(TABLE_DIR / "training_pairs_sample.csv", index=False, encoding="utf-8-sig")
+    split_df = pd.DataFrame(
+        [{"name": key, "value": value} for key, value in split_info.items()]
+    )
+    split_df.to_csv(TABLE_DIR / "time_split_info.csv", index=False, encoding="utf-8-sig")
 
-    # 生成演示推荐
-    print("\n生成演示推荐...")
-    movies_with_ratings = df[df['avg_user_rating'] > 0]['title_year'].head(10).tolist()
 
+def save_demo_outputs(
+    df: pd.DataFrame,
+    title_lookup: dict[str, int],
+    tfidf_vectors: dict[int, dict[str, float]],
+    norms: dict[int, float],
+    weights: np.ndarray,
+) -> None:
+    demo_titles = [
+        "Toy Story (1995)",
+        "The Matrix (1999)",
+        "Pulp Fiction (1994)",
+        "Forrest Gump (1994)",
+        "The Shawshank Redemption (1994)",
+    ]
     rows = []
-    for title in movies_with_ratings[:5]:
-        if title in title_lookup:
-            try:
-                recs = recommend(df, title_lookup, tfidf_vectors, norms, weights, title, top_n=10, min_unique_users=1)
-                rows.extend([rec.__dict__ for rec in recs])
-                print(f"  已推荐: {title}")
-            except Exception as e:
-                print(f"  推荐 {title} 时出错: {e}")
+    for title in demo_titles:
+        if title not in title_lookup:
+            continue
+        recs = recommend(df, title_lookup, tfidf_vectors, norms, weights, title, top_n=10, min_unique_users=5)
+        rows.extend([rec.__dict__ for rec in recs])
+    pd.DataFrame(rows).to_csv(TABLE_DIR / "demo_ml_recommendations.csv", index=False, encoding="utf-8-sig")
 
-    if rows:
-        pd.DataFrame(rows).to_csv(TABLE_DIR / "demo_recommendations.csv", index=False, encoding="utf-8-sig")
-        print(f"已保存 {len(rows)} 条推荐结果")
 
-    print(f"\n输出文件保存在: {OUTPUT_DIR}")
+def save_notes(
+    intercept: np.ndarray,
+    raw_weights: np.ndarray,
+    ranking_weights: np.ndarray,
+    training_pairs: pd.DataFrame,
+    test_pairs: pd.DataFrame,
+    metrics: dict[str, float],
+    split_info: dict[str, str],
+) -> None:
+    positive_count = int((training_pairs["pair_type"] == "positive").sum())
+    negative_count = int((training_pairs["pair_type"] == "negative").sum())
+    mean_target = float(training_pairs["collaborative_target"].mean()) if not training_pairs.empty else 0.0
+
+    lines = [
+        "ML Hybrid Recommender Summary",
+        "",
+        "Training target:",
+        "- collaborative_target = Jaccard similarity of users who rated both movies >= 4.0",
+        "",
+        "Time split:",
+        f"- cutoff_date = {split_info['cutoff_date']}",
+        f"- train range = {split_info['train_min_date']} to {split_info['train_max_date']}",
+        f"- test range = {split_info['test_min_date']} to {split_info['test_max_date']}",
+        "",
+        "Feature set:",
+        f"- genre_jaccard rank weight = {ranking_weights[0]:.4f}",
+        f"- keyword_jaccard rank weight = {ranking_weights[1]:.4f}",
+        f"- cast_jaccard rank weight = {ranking_weights[2]:.4f}",
+        f"- director_jaccard rank weight = {ranking_weights[3]:.4f}",
+        f"- semantic_similarity rank weight = {ranking_weights[4]:.4f}",
+        "",
+        "Model:",
+        "- linear regression by numpy least squares",
+        f"- intercept = {float(intercept[0]):.6f}",
+        f"- raw genre coefficient = {raw_weights[0]:.6f}",
+        f"- raw keyword coefficient = {raw_weights[1]:.6f}",
+        f"- raw cast coefficient = {raw_weights[2]:.6f}",
+        f"- raw director coefficient = {raw_weights[3]:.6f}",
+        f"- raw semantic coefficient = {raw_weights[4]:.6f}",
+        "",
+        "Training sample:",
+        f"- positive pairs = {positive_count}",
+        f"- negative pairs = {negative_count}",
+        f"- mean collaborative target = {mean_target:.4f}",
+        "",
+        "Test evaluation:",
+        f"- test pair count = {len(test_pairs)}",
+        f"- RMSE = {metrics['rmse']:.4f}",
+        f"- MAE = {metrics['mae']:.4f}",
+        f"- Pearson correlation = {metrics['pearson_corr']:.4f}" if not np.isnan(metrics["pearson_corr"]) else "- Pearson correlation = NaN",
+        "",
+        "Final recommendation score:",
+        "- final_score = learned_content_score * 0.85 + quality_score * 0.15",
+        "",
+        "Interpretation:",
+        "- Jaccard handles exact metadata overlap",
+        "- semantic similarity uses TF-IDF cosine on recommendation_text",
+        "- collaborative filtering signal is used only to learn weights, not as the main online model",
+    ]
+    (OUTPUT_DIR / "ml_recommender_notes.txt").write_text("\n".join(lines), encoding="utf-8")
 
 
 def run() -> None:
     ensure_dirs()
-
     df, ratings = load_data()
+    (
+        intercept,
+        raw_weights,
+        ranking_weights,
+        training_pairs,
+        test_pairs,
+        metrics,
+        split_info,
+        tfidf_vectors,
+        norms,
+    ) = train_weight_model(df, ratings)
     title_lookup = build_title_lookup(df)
 
-    intercept, weights, all_pairs, tfidf_vectors, norms, liked_users, metrics = train_weight_model_with_evaluation(df,
-                                                                                                                   ratings)
-
-    save_results(intercept, weights, all_pairs, metrics, df, title_lookup, tfidf_vectors, norms)
-
-    print("\n" + "=" * 60)
-    print("评估结果")
-    print("=" * 60)
-    print(f"MAE: {metrics.mae:.4f}")
-    print(f"RMSE: {metrics.rmse:.4f}")
-    print(f"Precision@1: {metrics.precision_at_k.get(1, 0):.4f}")
-    print(f"Precision@5: {metrics.precision_at_k.get(5, 0):.4f}")
-    print(f"Precision@10: {metrics.precision_at_k.get(10, 0):.4f}")
-    print(f"Recall@10: {metrics.recall_at_k.get(10, 0):.4f}")
-    print(f"NDCG@10: {metrics.ndcg_at_k.get(10, 0):.4f}")
-    print("=" * 60)
+    save_training_outputs(intercept, raw_weights, ranking_weights, training_pairs, test_pairs, metrics, split_info)
+    save_demo_outputs(df, title_lookup, tfidf_vectors, norms, ranking_weights)
+    save_notes(intercept, raw_weights, ranking_weights, training_pairs, test_pairs, metrics, split_info)
+    print(f"Saved ML hybrid recommender outputs to: {OUTPUT_DIR}")
 
 
 if __name__ == "__main__":
