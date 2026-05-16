@@ -6,3 +6,10 @@ __pycache__
 /*txt
 /.vscode
 plots/
+plots_recommend/
+recommendation_outputs/ml_recommender/*.pkl
+.streamlit/secrets.toml
+.DS_Store
+Thumbs.db
+.venv/
+venv/
