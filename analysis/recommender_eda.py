@@ -9,7 +9,7 @@ import pandas as pd
 import seaborn as sns
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
 OUTPUT_DIR = PROJECT_ROOT / "recommendation_outputs"
 FIGURE_DIR = OUTPUT_DIR / "figures"

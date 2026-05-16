@@ -1,0 +1,24 @@
+Recommendation EDA Notes
+Total movies in analysis table: 45346
+Movies eligible for content-based recommendation: 42108
+Movies eligible for collaborative filtering baseline: 3482
+
+Suggested recommendation path:
+- Build content-based recommendation first, then add collaborative filtering as a second model.
+
+Relationship findings:
+- TMDB vote average and MovieLens average user rating move together moderately to strongly (corr=0.43).
+- TMDB vote count and MovieLens unique users are strongly aligned (corr=0.51).
+- Popularity also has a positive relationship with MovieLens unique users (corr=0.29).
+- Among common genres, the highest mean MovieLens user rating is currently: Foreign (4.00).
+
+Recommended input fields for content-based recommendation:
+- primary_genre
+- genres_list
+- keywords_list
+- top_cast_list
+- director_list
+
+Suggested filtering before recommendation:
+- keep movies with at least 3 non-empty metadata groups
+- for collaborative filtering experiments, keep movies with at least 5 unique users

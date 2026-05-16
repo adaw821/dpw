@@ -8,7 +8,7 @@ from datetime import datetime
 from pathlib import Path
 
 
-PROJECT_ROOT = Path(os.getcwd())
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 #address
 INPUT_DIR = PROJECT_ROOT / "data" / "raw"#data/raw
 OUTPUT_DIR = PROJECT_ROOT / "data" / "processed"#data/processed

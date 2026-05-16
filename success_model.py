@@ -6,11 +6,15 @@ from page_design import add_title_background, add_custom_styles
 from pathlib import Path
 import xgboost as xgb
 
-st.set_page_config(
-    page_title="Film Profit Prediction System",
-    page_icon="🎬",
-    layout="wide"
-)
+try:
+    st.set_page_config(
+        page_title="Film Profit Prediction System",
+        page_icon="🎬",
+        layout="wide"
+    )
+except st.errors.StreamlitAPIException:
+    # 已经被 app_home.py 设置过 page_config,这里跳过即可
+    pass
 
 # 1. 添加背景
 add_title_background(

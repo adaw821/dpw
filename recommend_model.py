@@ -12,11 +12,15 @@ from build_ml_recommender import (
 )
 
 
-st.set_page_config(
-    page_title="Movie Recommendation",
-    page_icon="🎬",
-    layout="wide"
-)
+try:
+    st.set_page_config(
+        page_title="Movie Recommendation",
+        page_icon="🎬",
+        layout="wide"
+    )
+except st.errors.StreamlitAPIException:
+    # 已经被 app_home.py 设置过 page_config,这里跳过即可
+    pass
 
 @st.cache_resource
 def load_config():

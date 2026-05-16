@@ -4,21 +4,24 @@ import pandas as pd
 import seaborn as sns
 import matplotlib.pyplot as plt
 import matplotlib.cm as cm
+from pathlib import Path
 from scipy import stats
 
 # 0. Setup Output Folder
-output_folder = "plots"
-os.makedirs(output_folder, exist_ok=True)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
+output_folder = PROJECT_ROOT / "plots"
+output_folder.mkdir(parents=True, exist_ok=True)
 print(f"=== Setup ===")
 print(f"Plots will be saved in the '{output_folder}' folder.")
 
 # 1. Loading Data
 # Using relative paths for better project portability
 print("\n=== Loading Data ===")
-movies_df = pd.read_parquet('data/processed/movies_main.parquet')
-genres_df = pd.read_parquet('data/processed/movie_genres.parquet')
-cast_df = pd.read_csv('data/processed/cast.csv')
-crew_df = pd.read_csv('data/processed/crew.csv')
+movies_df = pd.read_parquet(PROCESSED_DIR / 'movies_main.parquet')
+genres_df = pd.read_parquet(PROCESSED_DIR / 'movie_genres.parquet')
+cast_df = pd.read_csv(PROCESSED_DIR / 'cast.csv')
+crew_df = pd.read_csv(PROCESSED_DIR / 'crew.csv')
 
 # Check whether the data is loaded correctly (Actors anomaly check)
 actor_movie_counts = cast_df[cast_df['cast_order'] <= 3].groupby('person_id')['movie_id'].count()
