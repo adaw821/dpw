@@ -61,7 +61,7 @@ GDRIVE_CONFIG = {
     # A Google Drive *folder* that contains all files in REQUIRED_DATA_FILES.
     # Share the folder as "Anyone with the link - Viewer".
     # Folder ID is the part after /folders/ in the URL.
-    "data_folder_id": "PUT_YOUR_DATA_FOLDER_ID_HERE",
+    "data_folder_id": "1eHhsAU0lzGlctl6SNHwEFwm-wxpzTy8r",
 
     # Optional: folder containing tfidf_vectors.pkl + tfidf_norms.pkl.
     # Leave as "" to skip - the recommender will rebuild them at runtime.
