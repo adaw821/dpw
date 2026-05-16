@@ -4,6 +4,8 @@ data/processed/
 /*xlsx
 __pycache__
 /*txt
+!requirements.txt
+!runtime.txt
 /.vscode
 plots/
 plots_recommend/
