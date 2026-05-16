@@ -13,7 +13,7 @@ Configuration:
   them in Streamlit secrets (Settings -> Secrets) like:
 
       [gdrive]
-      data_folder_id = "https://drive.google.com/drive/folders/1eHhsAU0lzGlctl6SNHwEFwm-wxpzTy8r?usp=sharing"
+      data_folder_id = "1eHhsAU0lzGlctl6SNHwEFwm-wxpzTy8r"
       tfidf_folder_id = ""   # optional
 
   Secrets override the hard-coded values.
