@@ -5,7 +5,7 @@ An end-to-end movie analytics project built on the **TMDB Movie Dataset** with t
 1. **Profit Prediction** — XGBoost classifier that predicts whether a movie will be profitable (ROI ≥ 2.5).
 2. **Smart Recommendation** — Hybrid content-based recommender using TF-IDF semantic similarity + Jaccard overlap on genres / keywords / cast / director, blended with a quality score.
 
-> **Live demo:** deployed on Streamlit Community Cloud (data is pulled from Google Drive on first cold start).
+> **Live demo:** https://8x7ejjvm9jggxuzh2mkhwp.streamlit.app/).
 
 ---
 
