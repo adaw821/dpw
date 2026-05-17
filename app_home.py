@@ -60,7 +60,7 @@ st.markdown("""
 def main():
     # Title
     st.markdown('<div class="main-title">🎬 Movie Analysis Platform</div>', unsafe_allow_html=True)
-    st.markdown('<div class="sub-title">Movie Profit Prediction | Smart Movie Recommendation</div>', unsafe_allow_html=True)
+    st.markdown('<div class="sub-title">Rating Prediction Model | Smart Movie Recommendation</div>', unsafe_allow_html=True)
 
     st.markdown("---")
 
@@ -68,17 +68,17 @@ def main():
     col1, col2, col3 = st.columns([1, 2, 1])
 
     with col2:
-        # Movie profit prediction card
+        # Rating Prediction Model card
         with st.container():
             st.markdown("""
             <div class="card card-profit" style="margin-bottom: 1.5rem;">
-                <div class="card-title">💰 Movie Profit Prediction</div>
+                <div class="card-title">💰 Rating Prediction Model</div>
                 <div class="card-desc">Predict whether a movie will be profitable based on machine learning models</div>
                 <div class="card-desc" style="margin-top: 0.5rem;">← Click the button below to enter</div>
             </div>
             """, unsafe_allow_html=True)
 
-            if st.button("Enter Profit Prediction System →", key="profit_btn", use_container_width=True):
+            if st.button("Enter Rating Prediction Model →", key="profit_btn", use_container_width=True):
                 st.session_state.page = "profit"
                 st.rerun()
 
