@@ -275,7 +275,7 @@ def main():
         </div>
         """, unsafe_allow_html=True)
     st.markdown("---")
-    if st.button("💰 Go to Profit Prediction"):
+    if st.button("💰 Go to Rating Prediction"):
         st.session_state.page = "profit"
         st.rerun()
 
