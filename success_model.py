@@ -8,7 +8,7 @@ import xgboost as xgb
 
 try:
     st.set_page_config(
-        page_title="Film Profit Prediction System",
+        page_title="Rating Prediction Model",
         page_icon="🎬",
         layout="wide"
     )
@@ -18,7 +18,7 @@ except st.errors.StreamlitAPIException:
 
 # 1. 添加背景
 add_title_background(
-    title_text="🎬 Film Profit Prediction System",
+    title_text="🎬 Rating Prediction Model",
     image_path="design/background.jpg",
     height=250,
     speed=40,
