@@ -13,10 +13,9 @@ try:
         layout="wide"
     )
 except st.errors.StreamlitAPIException:
-    # 已经被 app_home.py 设置过 page_config,这里跳过即可
     pass
 
-# 1. 添加背景
+
 add_title_background(
     title_text="🎬 Rating Prediction Model",
     image_path="design/background.jpg",
@@ -26,12 +25,12 @@ add_title_background(
     grayscale=True
 )
 
-# 2. 注入顺滑滑块的 CSS 样式
+
 add_custom_styles()
 
 
 # ============================================================ #
-# 数据加载 + 特征工程 + 模型训练（一次性，全部缓存）
+# Data loading + Feature engineering + Model training (one-time, all cached)
 # ============================================================ #
 def get_processed_data_path(filename):
     project_root = Path(__file__).parent
@@ -41,11 +40,11 @@ def get_processed_data_path(filename):
 @st.cache_resource(show_spinner="Loading data & training model (one-time setup)...")
 def load_and_train():
     """
-    把整个 pipeline 包进一个缓存函数：
-    数据加载 → 特征工程 → 训练 XGBoost
-    只在容器启动时跑一次，后续所有用户交互直接复用内存里的对象。
+    Wrap the entire pipeline into a caching function:
+    Data loading → Feature engineering → Training XGBoost
+    Run it only once when the container starts. Subsequent all user interactions directly reuse the objects in the memory.
     """
-    # ---------- 加载主表 ----------
+    # ---------- Loading main table ----------
     main = pd.read_parquet(get_processed_data_path('movies_main.parquet'))
     main = main[(main['budget'] > 0) & (main['revenue'] > 0)].copy()
     main['ROI'] = main['revenue'] / main['budget']
@@ -70,7 +69,7 @@ def load_and_train():
     countries = countries[countries['country_rank'] == 1][['movie_id', 'country_iso']]
     countries = countries.rename(columns={'country_iso': 'primary_country_iso'})
 
-    # ---------- Cast (只读需要的列，节省内存/时间) ----------
+    # ---------- Cast ----------
     cast = pd.read_csv(
         get_processed_data_path('cast.csv'),
         usecols=['movie_id', 'cast_order', 'person_id', 'person_name']
@@ -120,7 +119,7 @@ def load_and_train():
     main['director_win_rate'] = main['director_win_rate'].fillna(global_win_rate)
     main['writer_win_rate'] = main['writer_win_rate'].fillna(global_win_rate)
 
-    # ---------- 训练特征 ----------
+    # ---------- Training features ----------
     features = [
         'budget', 'genre_count', 'country_count', 'company_count', 'runtime_bin',
         'primary_genre_id', 'director_win_rate', 'writer_win_rate'
@@ -145,7 +144,7 @@ def load_and_train():
     )
     xgb_model.fit(X_train, y_train)
 
-    # ---------- 构建下拉选项（向量化，比 iterrows 快 10x+）----------
+    # ---------- Build dropdown options (vectorized, 10x+ faster than iterrows)----------
     train_cols = X_train.columns.tolist()
 
     available_genres_with_names = []
@@ -158,7 +157,7 @@ def load_and_train():
             available_genres_with_names.append((genre_id, genre_name))
     available_genres_with_names.sort(key=lambda x: x[1])
 
-    # 导演（向量化）
+    # director
     dir_df = main[main['director_id'] != -1][['director_id', 'director_name']] \
         .drop_duplicates(subset=['director_id'])
     dir_df['director_name'] = dir_df['director_name'].fillna(
@@ -169,7 +168,7 @@ def load_and_train():
         key=lambda x: x[1]
     )
 
-    # 演员（向量化）
+    # cast
     actor_mask = (main['first_actor'] != -1) | (main['second_actor'] != -1) | (main['third_actor'] != -1)
     actor_df = main[actor_mask][['first_actor', 'first_actor_name']] \
         .drop_duplicates(subset=['first_actor'])
@@ -181,11 +180,11 @@ def load_and_train():
         key=lambda x: x[1]
     )
 
-    # 预先索引到 dict，让按钮回调里查询是 O(1)
+    # Pre-index the dict, and the query in the button callback will be O(1)
     director_winrate_lookup = main.drop_duplicates(subset=['director_id']) \
         .set_index('director_id')['director_win_rate'].to_dict()
 
-    # 演员历史成功率（一次性算好）
+    # Actor's historical success rate (calculated once)
     actor_winrate = {}
     for col in ['first_actor', 'second_actor', 'third_actor']:
         grp = main.groupby(col)['is_profitable'].mean()
@@ -205,7 +204,7 @@ def load_and_train():
     }
 
 
-# ---- 一次加载（缓存命中后是瞬间返回）----
+# ---- One loading (with a instantaneous return after cache hit)----
 bundle = load_and_train()
 train_cols = bundle['X_train_cols']
 xgb_model = bundle['model']
@@ -218,7 +217,7 @@ actor_winrate_lookup = bundle['actor_winrate_lookup']
 
 
 # ============================================================ #
-# 页面交互
+# Page interaction
 # ============================================================ #
 st.write("Please adjust the parameters below to view the real-time prediction results.")
 
@@ -274,7 +273,7 @@ with col2:
         selected_actor = int(float(actor_id_str))
         actor_name = actor_parts[0].strip()
 
-    # O(1) dict 查询，比之前的 DataFrame filter 快很多
+    # O(1) dictionary lookup is much faster than the previous DataFrame filter operation.
     director_win_rate = global_win_rate
     if selected_director != -1:
         director_win_rate = director_winrate_lookup.get(selected_director, global_win_rate)
@@ -321,7 +320,7 @@ if st.button("Start Prediction"):
         st.error(f"⚠️ Result: Risk of failure. (Probability: {prob:.2%})")
 
 
-# 返回首页按钮
+# return home
 st.markdown("---")
 if st.button("🏠 Back to Home"):
     st.session_state.page = "home"
