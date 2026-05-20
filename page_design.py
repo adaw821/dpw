@@ -20,12 +20,12 @@ def add_title_background(
     opacity=0.6,
     grayscale=True
 ):
-    # 确保 height 是数字
+    # Ensure that the value of "height" is a numeric value
     if not isinstance(height, (int, float)):
         height = 200
     height = int(height)
 
-    # 检查图片是否存在
+    # Check if the picture exists
     if not os.path.exists(image_path):
         st.error(f"image file not exist: {image_path}")
         st.title(title_text)
@@ -91,29 +91,25 @@ def add_title_background(
 
 def add_custom_styles():
     """
-    注入自定义 CSS 来优化滑块（Slider）的交互体验，使其更顺滑。
+    Inject custom CSS to optimize the interaction experience of the slider, making it smoother.
     """
     custom_css = """
     <style>
-    /* 1. 让滑块的滑块（Thumb）移动时有过渡动画 */
     div.stSlider > div > div > div > div[role="slider"] {
         transition: transform 0.2s ease-out, box-shadow 0.2s ease-out;
         cursor: grab;
     }
     
-    /* 2. 点击/拖动时的样式优化 */
     div.stSlider > div > div > div > div[role="slider"]:active {
         cursor: grabbing;
-        transform: scale(1.1); /* 点击时稍微放大，增加反馈感 */
-        box-shadow: 0px 0px 15px rgba(0, 153, 255, 0.6); /* 增加光晕 */
+        transform: scale(1.1); 
+        box-shadow: 0px 0px 15px rgba(0, 153, 255, 0.6);
     }
 
-    /* 3. 轨道（Track）的平滑过渡 */
     div.stSlider > div > div > div:first-child {
         transition: background-color 0.3s ease;
     }
 
-    /* 4. 优化数值显示的字体，防止跳动 */
     div.stSlider p {
         font-variant-numeric: tabular-nums;
     }
